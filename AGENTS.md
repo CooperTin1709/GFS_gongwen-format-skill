@@ -11,3 +11,7 @@
 - Reopen and validate every generated DOCX before reporting success.
 - Never bypass Validator or downgrade a validation failure to a warning.
 - Do not add public-document formatting rules that are not explicitly approved.
+- Apply digit fonts only at Run level; never change text.
+- Use Word paragraph properties for first-line indentation; never insert spaces.
+- Keep signature right-aligned and salutation unindented.
+- Update Validator whenever a formatting rule is added.

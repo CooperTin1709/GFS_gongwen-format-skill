@@ -9,6 +9,8 @@ from pathlib import Path
 
 from docx import Document
 
+from scripts.classify import classify_document
+from scripts.docx_utils import font_values, indent_values, line_spacing
 from scripts.input_adapter import adapt_source_text
 
 
@@ -20,6 +22,10 @@ AMBIGUOUS_TEXT = """关于测试工作的通知
 一、总体要求
 1. 这是长度处于灰区且没有明确句末标记的模糊编号段落内容
 后续正文。"""
+AMBIGUOUS_SIGNATURE_TEXT = """关于测试工作的通知
+一、总体要求
+正文最后一句。
+XX部门"""
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -31,6 +37,27 @@ def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def document_snapshot(document: Document) -> list[dict[str, object]]:
+    return [
+        {
+            "text": paragraph.text,
+            "alignment": getattr(paragraph.alignment, "name", None),
+            "indent": indent_values(paragraph),
+            "line_spacing": line_spacing(paragraph),
+            "runs": [
+                {
+                    "text": run.text,
+                    "fonts": font_values(run),
+                    "size_pt": run.font.size.pt if run.font.size is not None else None,
+                    "bold": run.font.bold,
+                }
+                for run in paragraph.runs
+            ],
+        }
+        for paragraph in document.paragraphs
+    ]
 
 
 class BrowserTextEndToEndTests(unittest.TestCase):
@@ -49,7 +76,7 @@ class BrowserTextEndToEndTests(unittest.TestCase):
             first_summary = json.loads(first.stdout)
             self.assertEqual(first_summary["status"], "SUCCESS")
             self.assertTrue(first_summary["validation_passed"])
-            self.assertNotIn("人工智能技术快速发展", first.stdout)
+            self.assertNotIn("项目编号为AI-001", first.stdout)
 
             second = run_cli("--text-file", SAMPLE, "--output-dir", output_2)
             self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
@@ -60,6 +87,11 @@ class BrowserTextEndToEndTests(unittest.TestCase):
             self.assertTrue(result_1["validation"]["text_identical"])
             self.assertEqual(result_1["verified_against"], "browser_extracted_text")
             self.assertNotIn("unknown", result_1["classification_counts"])
+            self.assertEqual(result_1["classification_counts"]["salutation"], 1)
+            self.assertEqual(result_1["classification_counts"]["signature"], 2)
+            self.assertEqual(
+                result_1["classification_counts"], result_2["classification_counts"]
+            )
 
             source_text = SAMPLE.read_text(encoding="utf-8")
             expected = [item["text"] for item in adapt_source_text(source_text)["paragraphs"]]
@@ -76,6 +108,21 @@ class BrowserTextEndToEndTests(unittest.TestCase):
             self.assertEqual(
                 result_1["validation"]["observed_formats"],
                 result_2["validation"]["observed_formats"],
+            )
+            self.assertEqual(document_snapshot(document_1), document_snapshot(document_2))
+
+            classified_1, analysis_1 = classify_document(adapt_source_text(source_text))
+            classified_2, analysis_2 = classify_document(adapt_source_text(source_text))
+            self.assertEqual(analysis_1, analysis_2)
+            self.assertEqual(
+                [
+                    item["classification"]
+                    for item in classified_1["paragraphs"]
+                ],
+                [
+                    item["classification"]
+                    for item in classified_2["paragraphs"]
+                ],
             )
 
 
@@ -173,6 +220,35 @@ class NeedsReviewSimulationTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertEqual(json.loads(result.stdout)["status"], "INVALID_OVERRIDE")
+
+    def test_ambiguous_signature_review_can_resume_as_signature(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            folder = Path(directory)
+            text_file = folder / "ambiguous-signature.txt"
+            text_file.write_text(AMBIGUOUS_SIGNATURE_TEXT, encoding="utf-8")
+            output = folder / "output"
+            first = run_cli("--text-file", text_file, "--output-dir", output)
+            self.assertEqual(first.returncode, 3, first.stderr + first.stdout)
+            review = json.loads((output / "review.json").read_text(encoding="utf-8"))
+            self.assertEqual(review[0]["candidate_types"], ["signature", "body"])
+
+            overrides = folder / "signature-overrides.json"
+            overrides.write_text(
+                json.dumps({review[0]["id"]: "signature"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            resumed = run_cli(
+                "--text-file",
+                text_file,
+                "--output-dir",
+                output,
+                "--overrides",
+                overrides,
+            )
+            self.assertEqual(resumed.returncode, 0, resumed.stderr + resumed.stdout)
+            self.assertEqual(json.loads(resumed.stdout)["status"], "SUCCESS")
+            document = Document(output / "formatted.docx")
+            self.assertEqual(document.paragraphs[-1].alignment.name, "RIGHT")
 
 
 if __name__ == "__main__":

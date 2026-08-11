@@ -29,6 +29,55 @@ class ClassifyTests(unittest.TestCase):
     def test_body(self) -> None:
         self.assertEqual(self.classify("普通正文。")["classification"], "body")
 
+    def test_opening_salutation(self) -> None:
+        self.assertEqual(self.classify("行领导：")["classification"], "salutation")
+
+    def test_department_salutation(self) -> None:
+        self.assertEqual(self.classify("XX部门：")["classification"], "salutation")
+
+    def test_body_colon_in_middle_is_not_salutation(self) -> None:
+        data = adapt_source_text(
+            "关于测试工作的通知\n一、总体要求\n普通正文。\n具体要求如下："
+        )
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(result[-1]["classification"], "body")
+
+    def test_signature_organization_and_arabic_date(self) -> None:
+        data = adapt_source_text(
+            "关于测试工作的通知\n一、总体要求\n正文。\nXX部门\n2026年8月11日"
+        )
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(
+            [item["classification"] for item in result[-2:]],
+            ["signature", "signature"],
+        )
+
+    def test_signature_chinese_date(self) -> None:
+        data = adapt_source_text(
+            "关于测试工作的通知\n一、总体要求\n正文。\nXX部门\n二〇二六年八月十一日"
+        )
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(result[-1]["classification"], "signature")
+
+    def test_signature_after_attachment_block(self) -> None:
+        data = adapt_source_text(
+            "关于测试工作的通知\n附件：1.任务表\n　　　2.说明\nXX部门\n2026年8月11日"
+        )
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(
+            [item["classification"] for item in result],
+            ["title", "attachment", "attachment", "signature", "signature"],
+        )
+
+    def test_organization_without_date_needs_review(self) -> None:
+        data = adapt_source_text("正文最后一句。\nXX部门")
+        result, analysis = classify_document(data)
+        self.assertEqual(result["paragraphs"][-1]["classification"], "unknown")
+        self.assertEqual(
+            result["paragraphs"][-1]["candidate_types"], ["signature", "body"]
+        )
+        self.assertEqual(analysis["status"], "NEEDS_REVIEW")
+
     def test_attachment_and_all_following_lines(self) -> None:
         data = adapt_source_text("附件：1.测试\n　　　2.说明")
         result = classify_paragraphs(data["paragraphs"])

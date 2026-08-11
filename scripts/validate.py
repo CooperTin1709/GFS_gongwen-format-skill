@@ -6,40 +6,38 @@ from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
 
 try:
+    from .docx_utils import (
+        DIGIT_RUN_RE,
+        FONT_ATTRIBUTES,
+        font_values,
+        indent_values,
+        is_digit_run_text,
+        line_spacing,
+        split_text_by_digit_runs,
+    )
     from .render_docx import build_render_plan, resolve_classifications
     from .utils import PipelineError, load_rules, resolved_format_rule, workspace_path
 except ImportError:  # pragma: no cover - direct script import fallback
+    from docx_utils import (
+        DIGIT_RUN_RE,
+        FONT_ATTRIBUTES,
+        font_values,
+        indent_values,
+        is_digit_run_text,
+        line_spacing,
+        split_text_by_digit_runs,
+    )
     from render_docx import build_render_plan, resolve_classifications
     from utils import PipelineError, load_rules, resolved_format_rule, workspace_path
 
 
-FONT_ATTRIBUTES = ("eastAsia", "ascii", "hAnsi", "cs")
-
-
-def _line_spacing(paragraph: Any) -> tuple[str | None, float | None]:
-    p_pr = paragraph._p.pPr
-    if p_pr is None or p_pr.spacing is None:
-        return None, None
-    spacing = p_pr.spacing
-    rule = spacing.get(qn("w:lineRule"))
-    value = spacing.get(qn("w:line"))
-    try:
-        points = int(value) / 20 if value is not None else None
-    except ValueError:
-        points = None
-    return rule, points
-
-
-def _font_values(run: Any) -> dict[str, str | None]:
-    r_pr = run._element.rPr
-    fonts = r_pr.rFonts if r_pr is not None else None
-    return {
-        attribute: fonts.get(qn(f"w:{attribute}")) if fonts is not None else None
-        for attribute in FONT_ATTRIBUTES
-    }
+ALIGNMENTS = {
+    "left": WD_ALIGN_PARAGRAPH.LEFT,
+    "center": WD_ALIGN_PARAGRAPH.CENTER,
+    "right": WD_ALIGN_PARAGRAPH.RIGHT,
+}
 
 
 def _first_mismatch(expected: list[str], actual: list[str]) -> int | None:
@@ -67,6 +65,16 @@ def _blank_count_before(paragraphs: list[Any], index: int) -> int:
     return count
 
 
+def _indent_chars(values: dict[str, str | None]) -> float | None:
+    raw = values["firstLineChars"]
+    if raw is None:
+        return 0.0
+    try:
+        return int(raw) / 100
+    except ValueError:
+        return None
+
+
 def validate_document(
     document_data: dict[str, Any],
     output: str | Path,
@@ -90,7 +98,9 @@ def validate_document(
 
     errors: list[dict[str, Any]] = []
     expected_nonempty = [item["text"] for item in document_data["paragraphs"]]
-    actual_nonempty = [paragraph.text for paragraph in rendered.paragraphs if paragraph.text != ""]
+    actual_nonempty = [
+        paragraph.text for paragraph in rendered.paragraphs if paragraph.text != ""
+    ]
     text_mismatch = _first_mismatch(expected_nonempty, actual_nonempty)
     if text_mismatch is not None:
         errors.append(
@@ -126,13 +136,16 @@ def validate_document(
             "size_pt": set(),
             "line_spacing_pt": set(),
             "alignment": set(),
+            "first_line_indent_chars": set(),
         }
     )
     expected_line = float(rules["global"]["line_spacing_pt"])
+    digit_font = str(rules["global"]["digit_font"])
+
     for index, item in enumerate(plan[: len(rendered.paragraphs)]):
         paragraph = rendered.paragraphs[index]
         paragraph_type = item["classification"]
-        line_rule, line_points = _line_spacing(paragraph)
+        line_rule, line_points = line_spacing(paragraph)
         observations[paragraph_type]["line_spacing_pt"].add(line_points)
         observations[paragraph_type]["alignment"].add(
             getattr(paragraph.alignment, "name", None)
@@ -148,33 +161,88 @@ def validate_document(
                     "actual_pt": line_points,
                 }
             )
+
+        rule = (
+            resolved_format_rule(rules, paragraph_type)
+            if paragraph_type != "blank"
+            else None
+        )
+        expected_indent = (
+            float(rule["first_line_indent_chars"]) if rule is not None else 0.0
+        )
+        actual_indent_values = indent_values(paragraph)
+        actual_indent = _indent_chars(actual_indent_values)
+        observations[paragraph_type]["first_line_indent_chars"].add(actual_indent)
+        conflicts = {
+            key: actual_indent_values[key]
+            for key in ("firstLine", "hanging", "hangingChars")
+            if actual_indent_values[key] is not None
+        }
+        if actual_indent != expected_indent or conflicts:
+            errors.append(
+                {
+                    "check": "first_line_indent",
+                    "paragraph_id": item["id"],
+                    "expected_chars": expected_indent,
+                    "actual_chars": actual_indent,
+                    "actual_firstLineChars": actual_indent_values["firstLineChars"],
+                    "conflicts": conflicts,
+                }
+            )
+
         if paragraph_type == "blank":
             continue
+        assert rule is not None
 
-        rule = resolved_format_rule(rules, paragraph_type)
+        expected_segments = split_text_by_digit_runs(str(item["text"]))
         text_runs = [run for run in paragraph.runs if run.text != ""]
-        if len(text_runs) != 1 or text_runs[0].text != item["text"]:
+        actual_segments = [
+            (run.text, is_digit_run_text(run.text)) for run in text_runs
+        ]
+        if actual_segments != expected_segments:
             errors.append(
                 {
                     "check": "run_structure",
                     "paragraph_id": item["id"],
-                    "message": "A source paragraph must render as one exact text run.",
+                    "message": "Runs must preserve text and isolate consecutive digits.",
                 }
             )
+
         for run in text_runs:
-            font_values = _font_values(run)
-            size_pt = run.font.size.pt if run.font.size is not None else None
-            for attribute, actual_font in font_values.items():
+            digit_only = is_digit_run_text(run.text)
+            contains_digit = DIGIT_RUN_RE.search(run.text) is not None
+            expected_font = digit_font if digit_only else str(rule["font"])
+            actual_fonts = font_values(run)
+            for attribute, actual_font in actual_fonts.items():
                 observations[paragraph_type][attribute].add(actual_font)
-                if actual_font != rule["font"]:
+                if actual_font != expected_font:
                     errors.append(
                         {
                             "check": f"font_{attribute}",
                             "paragraph_id": item["id"],
-                            "expected": rule["font"],
+                            "run_text": run.text,
+                            "expected": expected_font,
                             "actual": actual_font,
                         }
                     )
+            if contains_digit and not digit_only:
+                errors.append(
+                    {
+                        "check": "digit_font_run_content",
+                        "paragraph_id": item["id"],
+                        "message": "A run containing digits also contains non-digit characters.",
+                    }
+                )
+            if any(value == digit_font for value in actual_fonts.values()) and not digit_only:
+                errors.append(
+                    {
+                        "check": "digit_font_run_content",
+                        "paragraph_id": item["id"],
+                        "message": "digit font run contains non-digit characters",
+                    }
+                )
+
+            size_pt = run.font.size.pt if run.font.size is not None else None
             observations[paragraph_type]["size_pt"].add(size_pt)
             if size_pt != float(rule["size_pt"]):
                 errors.append(
@@ -185,7 +253,7 @@ def validate_document(
                         "actual_pt": size_pt,
                     }
                 )
-            if "bold" in rule and run.font.bold is not bool(rule["bold"]):
+            if "bold" in rule and run.font.bold != bool(rule["bold"]):
                 errors.append(
                     {
                         "check": "bold",
@@ -194,12 +262,17 @@ def validate_document(
                         "actual": run.font.bold,
                     }
                 )
-        if rule.get("alignment") == "center" and paragraph.alignment != WD_ALIGN_PARAGRAPH.CENTER:
+
+        expected_alignment = rule.get("alignment")
+        if (
+            expected_alignment in ALIGNMENTS
+            and paragraph.alignment != ALIGNMENTS[expected_alignment]
+        ):
             errors.append(
                 {
                     "check": "alignment",
                     "paragraph_id": item["id"],
-                    "expected": "center",
+                    "expected": expected_alignment,
                     "actual": getattr(paragraph.alignment, "name", None),
                 }
             )
@@ -209,7 +282,9 @@ def validate_document(
         None,
     )
     title_blank_count = (
-        _blank_count_after(rendered.paragraphs, title_index) if title_index is not None else 0
+        _blank_count_after(rendered.paragraphs, title_index)
+        if title_index is not None
+        else 0
     )
     title_blank_ok = title_index is None or title_blank_count == int(
         rules["blank_policy"]["after_title"]

@@ -10,12 +10,14 @@ DEFAULT_RULES_PATH = PROJECT_ROOT / "config" / "format_rules.json"
 
 PARAGRAPH_TYPES = {
     "title",
+    "salutation",
     "heading_1",
     "heading_2",
     "heading_3",
     "heading_4",
     "body",
     "attachment",
+    "signature",
 }
 
 
@@ -99,12 +101,14 @@ def load_rules(path: str | Path | None = None) -> dict[str, Any]:
     rules = load_json(rules_path)
     required = {
         "title",
+        "salutation",
         "heading_1",
         "heading_2",
         "heading_3",
         "heading_4",
         "body",
         "attachment",
+        "signature",
         "global",
         "blank_policy",
     }

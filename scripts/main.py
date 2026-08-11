@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ def process_text(
             return result
 
         output_path = destination / DEFAULT_OUTPUT_NAME
-        rendered_path, _ = render_document(
+        rendered_path, plan = render_document(
             classified,
             output_path,
             overrides=overrides,
@@ -71,7 +72,15 @@ def process_text(
             rendered_path,
             overrides=overrides,
         )
-        result["classification_counts"] = analysis["classification_counts"]
+        result["classification_counts"] = dict(
+            sorted(
+                Counter(
+                    item["classification"]
+                    for item in plan
+                    if item["classification"] != "blank"
+                ).items()
+            )
+        )
         _write_result(destination, result)
         return result
     except PipelineError as exc:

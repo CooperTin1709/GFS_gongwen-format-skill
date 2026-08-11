@@ -29,6 +29,8 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 
 1. 只读取 `review_file` 中的项目。
 2. 每项只能从 `candidate_types` 选择一个类型。
+   - `salutation` 是文档开头称呼收文对象的独立短段，如“行领导：”“XX部门：”；正文中的“具体要求如下：”选择 `body`。
+   - `signature` 是文末单位名称、署名或落款日期；普通正文最后一句选择 `body`。
 3. 只生成段落 ID 到类型的简单映射：
 
    ```json
@@ -51,6 +53,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 - 不修改文字、空格、标点、数字、日期或编号。
 - 不在 overrides 中返回正文、理由或格式。
 - 不自行设置字体、字号、行距或新增其他公文标准。
+- 不自行设置首行缩进、查找数字、设置 Times New Roman 或右对齐；这些全部由 Python 和配置完成。
 - 不访问原始 DOCX URL，不联网，不调用外部模型 API。
 - 不因输入是文本而拒绝。
 - 不跳过 Validator。

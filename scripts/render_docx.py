@@ -5,10 +5,14 @@ from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.shared import Pt
 
 try:
+    from .docx_utils import (
+        set_exact_line_spacing,
+        set_first_line_indent_chars,
+        set_run_format,
+        split_text_by_digit_runs,
+    )
     from .utils import (
         PARAGRAPH_TYPES,
         PipelineError,
@@ -18,6 +22,12 @@ try:
         workspace_path,
     )
 except ImportError:  # pragma: no cover - direct script import fallback
+    from docx_utils import (
+        set_exact_line_spacing,
+        set_first_line_indent_chars,
+        set_run_format,
+        split_text_by_digit_runs,
+    )
     from utils import (
         PARAGRAPH_TYPES,
         PipelineError,
@@ -170,22 +180,11 @@ def _remove_default_paragraph(document: Any) -> None:
         paragraph._element.getparent().remove(paragraph._element)
 
 
-def _set_exact_line_spacing(paragraph: Any, line_spacing_pt: float) -> None:
-    paragraph.paragraph_format.line_spacing = Pt(line_spacing_pt)
-    spacing = paragraph._p.get_or_add_pPr().get_or_add_spacing()
-    spacing.set(qn("w:line"), str(round(line_spacing_pt * 20)))
-    spacing.set(qn("w:lineRule"), "exact")
-
-
-def _set_run_format(run: Any, rule: dict[str, Any]) -> None:
-    font_name = str(rule["font"])
-    run.font.name = font_name
-    run.font.size = Pt(float(rule["size_pt"]))
-    if "bold" in rule:
-        run.font.bold = bool(rule["bold"])
-    fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
-    for attribute in ("eastAsia", "ascii", "hAnsi", "cs"):
-        fonts.set(qn(f"w:{attribute}"), font_name)
+ALIGNMENTS = {
+    "left": WD_ALIGN_PARAGRAPH.LEFT,
+    "center": WD_ALIGN_PARAGRAPH.CENTER,
+    "right": WD_ALIGN_PARAGRAPH.RIGHT,
+}
 
 
 def render_document(
@@ -206,17 +205,35 @@ def render_document(
     document = Document()
     _remove_default_paragraph(document)
     line_spacing_pt = float(rules["global"]["line_spacing_pt"])
+    digit_font = str(rules["global"]["digit_font"])
 
     for item in plan:
         paragraph = document.add_paragraph()
         paragraph_type = item["classification"]
         if paragraph_type != "blank":
             rule = resolved_format_rule(rules, paragraph_type)
-            run = paragraph.add_run(item["text"])
-            _set_run_format(run, rule)
-            if rule.get("alignment") == "center":
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_exact_line_spacing(paragraph, line_spacing_pt)
+            text = str(item["text"])
+            for segment, is_digit in split_text_by_digit_runs(text):
+                run = paragraph.add_run(segment)
+                set_run_format(
+                    run,
+                    font_name=digit_font if is_digit else str(rule["font"]),
+                    size_pt=float(rule["size_pt"]),
+                    bold=bool(rule["bold"]) if "bold" in rule else None,
+                )
+            if paragraph.text != text:
+                raise PipelineError(
+                    "RENDER_FAILED",
+                    "Run splitting changed source paragraph text.",
+                    details={"id": item["id"]},
+                )
+            alignment = rule.get("alignment")
+            if alignment in ALIGNMENTS:
+                paragraph.alignment = ALIGNMENTS[alignment]
+            set_first_line_indent_chars(
+                paragraph, float(rule["first_line_indent_chars"])
+            )
+        set_exact_line_spacing(paragraph, line_spacing_pt)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:

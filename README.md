@@ -28,7 +28,8 @@
 - `scripts/input_adapter.py`：保留原行文本，生成 canonical paragraph records
 - `scripts/classify.py`：正则和上下文优先分类，生成有限 review 项
 - `scripts/render_docx.py`：按原始 `text` 和配置生成 DOCX
-- `scripts/validate.py`：重开 DOCX，严格验证文字、OOXML 字体、字号、对齐、行距和空行
+- `scripts/docx_utils.py`：字符缩进、数字 Run、字体和 OOXML 共享操作
+- `scripts/validate.py`：重开 DOCX，严格验证文字、Run、OOXML 字体、字号、缩进、对齐、行距和空行
 - `scripts/main.py`：`process_text()` API 与单入口 CLI 编排
 - `scripts/utils.py`：共享错误、路径、JSON 和配置读取
 - `tests/`：input adapter、classification、validator 负面和 Browser Text E2E 测试
@@ -75,6 +76,14 @@ python -m unittest discover -s tests -v
 ```
 
 测试在 `.tmp/tests` 内生成临时 DOCX，并在验证前后真实保存和重新打开文件。
+
+## 当前格式
+
+- 一级至四级标题、正文和附件使用 Word 段落属性首行缩进 2 字符；不在文字前插入空格。
+- 称谓左对齐且不缩进；主标题居中且不缩进。
+- 落款使用仿宋_GB2312、16 pt、右对齐且不增加首行缩进。
+- 所有半角及全角阿拉伯数字使用 Times New Roman，字号继承所在段落。
+- 全部段落（含规范空白段落）固定 30 pt 行距。
 
 ## 打包
 
