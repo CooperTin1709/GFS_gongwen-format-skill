@@ -1,4 +1,4 @@
 interface:
   display_name: "公文格式整理"
-  short_description: "Format Chinese DOCX files without changing any original text"
-  default_prompt: "Use $gongwen-format-skill to format this DOCX and validate that its text is unchanged."
+  short_description: "将 Browser 公文纯文本确定性转换为已验证的规范 DOCX"
+  default_prompt: "Use $gongwen-format-skill to convert the complete Browser-extracted public-document text into a validated DOCX."

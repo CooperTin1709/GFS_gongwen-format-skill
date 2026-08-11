@@ -14,11 +14,13 @@
   },
   "heading_3": {
     "font": "仿宋_GB2312",
-    "size_pt": 16
+    "size_pt": 16,
+    "bold": false
   },
   "heading_4": {
     "font": "仿宋_GB2312",
-    "size_pt": 16
+    "size_pt": 16,
+    "bold": false
   },
   "body": {
     "font": "仿宋_GB2312",
@@ -32,7 +34,6 @@
   },
   "blank_policy": {
     "after_title": 1,
-    "before_attachment": 1,
-    "preserve_other_original_blanks": true
+    "before_attachment": 1
   }
 }

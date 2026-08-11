@@ -8,183 +8,152 @@ from typing import Any
 
 try:
     from .classify import classify_document
-    from .extract import extract_document, write_extraction
+    from .input_adapter import adapt_source_text
     from .render_docx import load_overrides, render_document
-    from .utils import PipelineError, load_json, workspace_path, write_json
+    from .utils import PipelineError, workspace_path, write_json
     from .validate import validate_document
 except ImportError:  # direct execution: python scripts/main.py
     from classify import classify_document
-    from extract import extract_document, write_extraction
+    from input_adapter import adapt_source_text
     from render_docx import load_overrides, render_document
-    from utils import PipelineError, load_json, workspace_path, write_json
+    from utils import PipelineError, workspace_path, write_json
     from validate import validate_document
 
 
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 2
 EXIT_NEEDS_REVIEW = 3
+DEFAULT_OUTPUT_NAME = "formatted.docx"
 
 
-def _print_summary(result: dict[str, Any]) -> None:
-    summary = {
-        key: result.get(key)
-        for key in ("success", "code", "output_file", "document_json", "document_md", "result_file")
-        if key in result
+def _error_result(error: PipelineError) -> dict[str, Any]:
+    return {
+        "status": error.code,
+        "errors": [{"message": error.message, "details": error.details}],
     }
-    summary["needs_review_count"] = len(result.get("needs_review", []))
-    summary["error_count"] = len(result.get("errors", []))
-    print(json.dumps(summary, ensure_ascii=False))
 
 
-def analyze_pipeline(source: str | Path, work_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    work_path = workspace_path(work_dir)
-    work_path.mkdir(parents=True, exist_ok=True)
-    extracted = extract_document(source)
-    files = write_extraction(extracted, work_path)
-    classified, analysis = classify_document(extracted)
-    write_json(work_path / "document.json", classified)
-    write_json(work_path / "analysis.json", analysis)
-    result = {
-        "success": not analysis["needs_review"],
-        "code": analysis["code"],
-        "source_file": classified["source_file"],
-        "output_file": None,
-        "document_json": files["document_json"],
-        "document_md": files["document_md"],
-        "analysis_file": str(work_path / "analysis.json"),
-        "review_file": str(work_path / "classification_overrides.json"),
-        "needs_review": analysis["needs_review"],
-        "warnings": [],
-        "errors": [],
-    }
-    result_path = write_json(work_path / "result.json", result)
-    result["result_file"] = str(result_path)
-    write_json(result_path, result)
-    return classified, result
+def _write_result(output_dir: Path, result: dict[str, Any]) -> None:
+    write_json(output_dir / "result.json", result)
 
 
-def _render_validate(
-    data: dict[str, Any],
-    output: str | Path,
-    *,
-    overrides: dict[str, str] | None,
-    result_path: str | Path,
+def process_text(
+    source_text: str,
+    output_dir: str | Path,
+    overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    rendered_path, _ = render_document(data, output, overrides=overrides)
-    result = validate_document(data, rendered_path, overrides=overrides)
-    result["result_file"] = str(Path(result_path).resolve())
-    write_json(result_path, result)
-    return result
+    """Run Browser text through adaptation, classification, rendering, and validation."""
 
+    try:
+        destination = workspace_path(output_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        canonical = adapt_source_text(source_text)
+        classified, analysis = classify_document(canonical)
 
-def command_analyze(args: argparse.Namespace) -> int:
-    _, result = analyze_pipeline(args.input, args.work_dir)
-    _print_summary(result)
-    return EXIT_SUCCESS if result["success"] else EXIT_NEEDS_REVIEW
+        if analysis["review_count"] and overrides is None:
+            review_path = write_json(destination / "review.json", analysis["review_items"])
+            result = {
+                "status": "NEEDS_REVIEW",
+                "review_file": str(review_path),
+                "review_count": analysis["review_count"],
+            }
+            _write_result(destination, result)
+            return result
 
-
-def command_format(args: argparse.Namespace) -> int:
-    data, analysis_result = analyze_pipeline(args.input, args.work_dir)
-    if analysis_result["needs_review"]:
-        _print_summary(analysis_result)
-        return EXIT_NEEDS_REVIEW
-    result_path = Path(args.work_dir) / "result.json"
-    result = _render_validate(data, args.output, overrides=None, result_path=result_path)
-    result.update(
-        {
-            "document_json": analysis_result["document_json"],
-            "document_md": analysis_result["document_md"],
+        output_path = destination / DEFAULT_OUTPUT_NAME
+        rendered_path, _ = render_document(
+            classified,
+            output_path,
+            overrides=overrides,
+        )
+        result = validate_document(
+            classified,
+            rendered_path,
+            overrides=overrides,
+        )
+        result["classification_counts"] = analysis["classification_counts"]
+        _write_result(destination, result)
+        return result
+    except PipelineError as exc:
+        result = _error_result(exc)
+        try:
+            destination = workspace_path(output_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            _write_result(destination, result)
+        except (OSError, PipelineError):
+            pass
+        return result
+    except Exception as exc:  # fail closed without printing source text
+        result = {
+            "status": "RENDER_FAILED",
+            "errors": [
+                {
+                    "message": "Unexpected pipeline failure.",
+                    "details": {"reason": type(exc).__name__},
+                }
+            ],
         }
+        try:
+            destination = workspace_path(output_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            _write_result(destination, result)
+        except (OSError, PipelineError):
+            pass
+        return result
+
+
+def _stdout_result(result: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "status",
+        "source_type",
+        "output_file",
+        "validation_passed",
+        "verified_against",
+        "review_file",
+        "review_count",
+        "errors",
     )
-    write_json(result_path, result)
-    _print_summary(result)
-    return EXIT_SUCCESS if result["success"] else EXIT_FAILURE
-
-
-def command_render(args: argparse.Namespace) -> int:
-    document_path = workspace_path(args.document_json, must_exist=True)
-    data = load_json(document_path)
-    overrides = load_overrides(args.overrides)
-    result_path = workspace_path(args.result_file or (Path(args.output).parent / "result.json"))
-    result = _render_validate(data, args.output, overrides=overrides, result_path=result_path)
-    _print_summary(result)
-    return EXIT_SUCCESS if result["success"] else EXIT_FAILURE
-
-
-def command_validate(args: argparse.Namespace) -> int:
-    document_path = workspace_path(args.document_json, must_exist=True)
-    data = load_json(document_path)
-    overrides = load_overrides(args.overrides)
-    result = validate_document(data, args.output, overrides=overrides)
-    result_path = workspace_path(args.result_file or (Path(args.output).parent / "validation-result.json"))
-    result["result_file"] = str(result_path)
-    write_json(result_path, result)
-    _print_summary(result)
-    return EXIT_SUCCESS if result["success"] else EXIT_FAILURE
+    return {key: result[key] for key in fields if key in result}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Deterministically format and validate plain-text Chinese DOCX files."
+        description="Generate and validate a formatted DOCX from Browser-extracted text."
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    analyze = subparsers.add_parser("analyze", help="Preflight, extract, and classify a DOCX.")
-    analyze.add_argument("input")
-    analyze.add_argument("--work-dir", required=True)
-    analyze.set_defaults(handler=command_analyze)
-
-    format_command = subparsers.add_parser("format", help="Run the complete pipeline when no review is needed.")
-    format_command.add_argument("input")
-    format_command.add_argument("--output", required=True)
-    format_command.add_argument("--work-dir", required=True)
-    format_command.set_defaults(handler=command_format)
-
-    render = subparsers.add_parser("render", help="Render classified JSON and validate the output.")
-    render.add_argument("document_json")
-    render.add_argument("--output", required=True)
-    render.add_argument("--overrides")
-    render.add_argument("--result-file")
-    render.set_defaults(handler=command_render)
-
-    validate = subparsers.add_parser("validate", help="Reopen and independently validate a rendered DOCX.")
-    validate.add_argument("document_json")
-    validate.add_argument("--output", required=True)
-    validate.add_argument("--overrides")
-    validate.add_argument("--result-file")
-    validate.set_defaults(handler=command_validate)
+    parser.add_argument("--text-file", required=True, help="UTF-8 Browser text file.")
+    parser.add_argument("--output-dir", required=True, help="Directory for result files.")
+    parser.add_argument(
+        "--overrides",
+        help="Optional JSON mapping of ambiguous paragraph IDs to candidate types.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
-        return int(args.handler(args))
+        text_path = workspace_path(args.text_file, must_exist=True)
+        source_text = text_path.read_text(encoding="utf-8")
+        overrides = load_overrides(args.overrides) if args.overrides else None
+        result = process_text(source_text, args.output_dir, overrides=overrides)
+    except (OSError, UnicodeError) as exc:
+        result = _error_result(
+            PipelineError(
+                "INVALID_INPUT",
+                "Unable to read the Browser text as UTF-8.",
+                details={"reason": type(exc).__name__},
+            )
+        )
     except PipelineError as exc:
-        result = exc.as_result()
-        if getattr(args, "work_dir", None):
-            try:
-                work_dir = workspace_path(args.work_dir)
-                work_dir.mkdir(parents=True, exist_ok=True)
-                result_path = write_json(work_dir / "result.json", result)
-                result["result_file"] = str(result_path)
-                write_json(result_path, result)
-            except PipelineError:
-                pass
-        _print_summary(result)
-        return EXIT_NEEDS_REVIEW if exc.code == "NEEDS_REVIEW" else EXIT_FAILURE
-    except Exception as exc:  # fail closed without printing document content
-        result = {
-            "success": False,
-            "code": "RENDER_FAILED",
-            "errors": [{"message": "Unexpected pipeline failure.", "reason": type(exc).__name__}],
-            "warnings": [],
-            "needs_review": [],
-            "output_file": None,
-        }
-        _print_summary(result)
-        return EXIT_FAILURE
+        result = _error_result(exc)
+
+    print(json.dumps(_stdout_result(result), ensure_ascii=False))
+    status = result["status"]
+    if status == "SUCCESS":
+        return EXIT_SUCCESS
+    if status == "NEEDS_REVIEW":
+        return EXIT_NEEDS_REVIEW
+    return EXIT_FAILURE
 
 
 if __name__ == "__main__":
