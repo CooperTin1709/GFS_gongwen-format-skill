@@ -1,0 +1,4 @@
+interface:
+  display_name: "公文格式整理"
+  short_description: "Format Chinese DOCX files without changing any original text"
+  default_prompt: "Use $gongwen-format-skill to format this DOCX and validate that its text is unchanged."

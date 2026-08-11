@@ -10,15 +10,15 @@ venv/
 htmlcov/
 
 # Generated build/package output
-build/
-dist/
+/build/
+/dist/
 *.egg-info/
 
 # Temporary runtime output
-.tmp/
-tmp/
-work/
-output/
+/.tmp/
+/tmp/
+/work/
+/output/
 *.log
 
 # Editor and operating-system noise
@@ -26,4 +26,3 @@ output/
 .vscode/
 .DS_Store
 Thumbs.db
-

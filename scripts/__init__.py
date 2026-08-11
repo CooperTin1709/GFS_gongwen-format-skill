@@ -1,0 +1,1 @@
+"""Deterministic DOCX formatting pipeline."""

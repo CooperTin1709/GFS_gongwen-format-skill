@@ -1,0 +1,38 @@
+{
+  "title": {
+    "font": "方正小标宋简体",
+    "size_pt": 22,
+    "alignment": "center"
+  },
+  "heading_1": {
+    "font": "黑体",
+    "size_pt": 16
+  },
+  "heading_2": {
+    "font": "楷体_GB2312",
+    "size_pt": 16
+  },
+  "heading_3": {
+    "font": "仿宋_GB2312",
+    "size_pt": 16
+  },
+  "heading_4": {
+    "font": "仿宋_GB2312",
+    "size_pt": 16
+  },
+  "body": {
+    "font": "仿宋_GB2312",
+    "size_pt": 16
+  },
+  "attachment": {
+    "inherit": "body"
+  },
+  "global": {
+    "line_spacing_pt": 30
+  },
+  "blank_policy": {
+    "after_title": 1,
+    "before_attachment": 1,
+    "preserve_other_original_blanks": true
+  }
+}
