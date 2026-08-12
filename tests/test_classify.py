@@ -52,6 +52,40 @@ class ClassifyTests(unittest.TestCase):
             ["signature", "signature"],
         )
 
+    def test_real_signature_department_and_date(self) -> None:
+        data = adapt_source_text(
+            "关于2025年度数据治理工作的通知\n一、总体要求\n"
+            "请各部门于2025年8月12日前完成数据报送。\n"
+            "以上事项，请遵照执行。\n数据管理部\n2025年8月12日"
+        )
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(result[-4]["classification"], "body")
+        self.assertEqual(result[-3]["classification"], "body")
+        self.assertEqual(
+            [item["classification"] for item in result[-2:]],
+            ["signature", "signature"],
+        )
+
+    def test_signature_template_date_preserves_text(self) -> None:
+        source = "关于测试工作的通知\n正文。\n数据管理部\n2025年x月x日"
+        data = adapt_source_text(source)
+        result = classify_paragraphs(data["paragraphs"])
+        self.assertEqual(
+            [item["classification"] for item in result[-2:]],
+            ["signature", "signature"],
+        )
+        self.assertEqual(result[-1]["text"], "2025年x月x日")
+
+    def test_signature_date_allows_spaces_and_chinese_circle(self) -> None:
+        for date in ("2025 年 8 月 12 日", "二○二五年八月十二日"):
+            with self.subTest(date=date):
+                data = adapt_source_text(f"正文。\n数据管理部\n{date}")
+                result = classify_paragraphs(data["paragraphs"])
+                self.assertEqual(
+                    [item["classification"] for item in result[-2:]],
+                    ["signature", "signature"],
+                )
+
     def test_signature_chinese_date(self) -> None:
         data = adapt_source_text(
             "关于测试工作的通知\n一、总体要求\n正文。\nXX部门\n二〇二六年八月十一日"
