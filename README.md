@@ -1,74 +1,97 @@
 # 公文格式整理 Skill
 
-这是一个确定性优先的中文纯文字 DOCX 格式整理器。它从 DOCX 直接提取段落文本，以结构化 JSON 为事实来源，按配置重建文档，再重新打开输出文件验证文字、顺序和格式。程序不联网、不调用大模型 API，也不修改原文内容。
+本项目把 HiAgent Browser 提取出的公文纯文本确定性地重建为规范 DOCX。程序不读取原始 DOCX，不联网，不调用模型 API，不改写任何 Browser 非空文本。
 
-## 环境要求
+```text
+用户 DOCX
+→ HiAgent Browser
+→ source_text
+→ input_adapter
+→ rules-first classify
+→ render DOCX
+→ reopen + strict validate
+→ output DOCX
+```
+
+内容完整性的事实基准是 `Browser source_text` 生成的 canonical 非空段落，不是原始 DOCX。输出结果明确记录 `verified_against=browser_extracted_text`。
+
+## 环境
 
 - Python 3
 - `python-docx`
-- 不需要也不允许在线安装额外依赖
+- 不安装其他依赖，不使用网络、Pandoc、LibreOffice 或 Word COM
 
-## 目录
+## 目录与职责
 
-- `config/format_rules.json`：唯一格式值来源
-- `references/format_spec.md`：当前内部格式规范
-- `scripts/extract.py`：Preflight、DOCX 提取、JSON/Markdown 视图
-- `scripts/classify.py`：Regex 与结构规则分类
-- `scripts/render_docx.py`：按 JSON 原文和分类重新生成 DOCX
-- `scripts/validate.py`：重新打开输出并验证
-- `scripts/main.py`：CLI 入口
-- `tests/`：真实 DOCX 单元与端到端测试
-- `samples/input/`、`samples/output/`：可选本地样例目录
-- `dist/`：最终部署 ZIP（生成物，不纳入 Git）
+- `config/format_rules.json`：唯一排版值来源
+- `references/format_spec.md`：维护和审计用内部规范
+- `scripts/input_adapter.py`：保留原行文本，生成 canonical paragraph records
+- `scripts/classify.py`：正则和上下文优先分类，生成有限 review 项
+- `scripts/render_docx.py`：按原始 `text` 和配置生成 DOCX
+- `scripts/docx_utils.py`：字符缩进、数字 Run、字体和 OOXML 共享操作
+- `scripts/validate.py`：重开 DOCX，严格验证文字、Run、OOXML 字体、字号、缩进、对齐、行距和空行
+- `scripts/main.py`：`process_text()` API 与单入口 CLI 编排
+- `scripts/utils.py`：共享错误、路径、JSON 和配置读取
+- `tests/`：input adapter、classification、validator 负面和 Browser Text E2E 测试
+- `samples/browser_input.txt`：Browser 风格样例
 
-## 运行
+## Python API
 
-分析：
+```python
+from scripts.main import process_text
 
-```bash
-python scripts/main.py analyze input.docx --work-dir work
+result = process_text(source_text, "work")
 ```
 
-无需人工复核时直接格式化：
+可选的 `overrides` 只能是 `paragraph_id -> candidate_type` 映射。
+
+## CLI
 
 ```bash
-python scripts/main.py format input.docx --output output.docx --work-dir work
+python scripts/main.py --text-file samples/browser_input.txt --output-dir work
 ```
 
-需要复核时，只在 `classification_overrides.json` 写段落 ID 到类型的映射，然后：
+如返回 `NEEDS_REVIEW`，只读取 `review.json`，从每项的 `candidate_types` 选择一次并重跑：
 
 ```bash
-python scripts/main.py render work/document.json --overrides work/classification_overrides.json --output output.docx --result-file work/result.json
-python scripts/main.py validate work/document.json --overrides work/classification_overrides.json --output output.docx --result-file work/validation-result.json
+python scripts/main.py --text-file samples/browser_input.txt --output-dir work --overrides overrides.json
 ```
 
-## 测试与测试文档
+stdout 只输出简短结果 JSON。成功结果包含：
 
-测试代码会在项目 `.tmp/` 下自动生成格式故意混乱的虚构 DOCX，不使用真实文件：
+```json
+{
+  "status": "SUCCESS",
+  "source_type": "browser_text",
+  "output_file": ".../formatted.docx",
+  "validation_passed": true,
+  "verified_against": "browser_extracted_text"
+}
+```
+
+## 测试
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-`tests/support.py` 的 `create_messy_docx()` 是测试文档生成入口。
+测试在 `.tmp/tests` 内生成临时 DOCX，并在验证前后真实保存和重新打开文件。
+
+## 当前格式
+
+- 一级至四级标题、正文和附件使用 Word 段落属性首行缩进 2 字符；不在文字前插入空格。
+- 称谓左对齐且不缩进；主标题居中且不缩进。
+- 落款使用仿宋_GB2312、16 pt、右对齐且不增加首行缩进。
+- 所有半角及全角阿拉伯数字使用 Times New Roman，字号继承所在段落。
+- 全部段落（含规范空白段落）固定 30 pt 行距。
 
 ## 打包
 
-完成全部测试后，使用 Python 标准库 `zipfile` 将 `SKILL.md`、`agents/`、`config/`、`references/` 和 `scripts/` 直接放到 ZIP 根目录：
-
-```text
-dist/gongwen-format-skill.zip
-```
-
-部署包不包含测试、样例、Git、缓存和临时工作目录。
-
-## 修改格式
-
-只编辑 `config/format_rules.json`，然后运行完整测试。不要把具体字体、字号、对齐或行距散落到 Python 代码中，也不要加入未确认的公文规范。
+部署包为 `dist/gongwen-format-skill.zip`。ZIP 根目录直接包含 `SKILL.md`，并仅包含 `SKILL.md`、`README.md`、`agents/`、`config/`、`references/` 和 `scripts/` 的运行必需文件。
 
 ## 当前限制
 
-- 仅支持普通纯文字、单 Section DOCX。
-- 表格、图片、文本框、嵌入对象、多 Section、非空页眉页脚会明确失败。
-- 仅规范 TASK 明确给出的字体、字号、主标题居中、两处空行和固定行距。
-- 模糊结构必须由智能体只针对 `needs_review` 段落分类。
+- 输入仅为 Browser 已提取的纯文本；不保留原 DOCX 页面结构或既有样式。
+- 不处理图片、表格、页眉页脚、多 Section、PDF、OCR、HTML 或 Markdown。
+- 不纠错、不规范标点、不修复编号。
+- 只实现 `references/format_spec.md` 中明确批准的格式。

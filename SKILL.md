@@ -1,69 +1,61 @@
 ---
 name: gongwen-format-skill
-description: Deterministically format plain-text Chinese public-document DOCX files while preserving every original non-empty paragraph character and order. Use when a user provides a DOCX and asks to 整理公文格式、按公文要求排版、规范 Word 公文格式，或将 DOCX 整理为指定格式. Supports strict preflight rejection of complex content, paragraph classification with constrained review overrides, configured rendering, and mandatory DOCX validation.
+description: Convert complete Chinese public-document text extracted by the HiAgent Browser plugin into a strictly formatted, validated DOCX without changing any non-blank source paragraph. Use for 整理公文格式、规范公文、按规定字体字号排版，或把 Browser 读取的文档文本转换为规范 Word；Browser 纯文本是合法输入，不要求原始 DOCX。
 ---
 
 # 公文格式整理
 
-处理用户提供的纯文字 DOCX。以 `document.json` 中程序提取的原始 `text` 为唯一正文事实来源；仅用 Markdown 帮助判断模糊段落。
+接收 Browser 插件读取到的完整公文纯文本，生成经过严格验证的 DOCX。格式由程序和 `config/format_rules.json` 决定。
 
-## 执行流程
+## 输入
 
-1. 在 Skill 根目录运行预检、提取和分类：
+- 把 Browser 返回的完整原始文本保存为 UTF-8 文本文件。
+- 纯文本就是合法输入。不得拒绝，不得要求重新上传 DOCX，不得访问原文件 URL。
 
-   ```bash
-   python scripts/main.py analyze input.docx --work-dir work
-   ```
+## 正常执行
 
-2. 查看 `work/result.json` 和 `work/analysis.json`。若 `code` 为 `UNSUPPORTED_COMPLEX_CONTENT`，明确告知用户当前版本只安全支持纯文字、单 Section DOCX，并停止。
-3. 阅读 `work/document.md`，只关注 `needs_review` 列出的段落 ID 及上下文。
-4. 若没有 `needs_review`，运行完整流水线：
+1. 运行：
 
    ```bash
-   python scripts/main.py format input.docx --output output.docx --work-dir work
+   python scripts/main.py --text-file browser_input.txt --output-dir work
    ```
 
-5. 若有 `needs_review`，只创建 ID 到类型的 JSON 映射，例如：
+2. 如果 `status=SUCCESS`，直接返回 `output_file`。
+3. 不要再次修改生成文件。
+
+## NEEDS_REVIEW
+
+如果 `status=NEEDS_REVIEW`：
+
+1. 只读取 `review_file` 中的项目。
+2. 每项只能从 `candidate_types` 选择一个类型。
+   - `salutation` 是文档开头称呼收文对象的独立短段，如“行领导：”“XX部门：”；正文中的“具体要求如下：”选择 `body`。
+   - `signature` 是文末单位名称、署名或落款日期；普通正文最后一句选择 `body`。
+3. 只生成段落 ID 到类型的简单映射：
 
    ```json
    {
-     "p0012": "heading_3",
-     "p0021": "body"
+     "p0012": "heading_3"
    }
    ```
 
-   只使用 `title`、`heading_1`、`heading_2`、`heading_3`、`heading_4`、`body`、`attachment`、`blank`；不得包含正文文本或其他字段。保存为 `work/classification_overrides.json`，再运行：
+4. 保存映射后只再调用一次：
 
    ```bash
-   python scripts/main.py render work/document.json --overrides work/classification_overrides.json --output output.docx --result-file work/result.json
+   python scripts/main.py --text-file browser_input.txt --output-dir work --overrides overrides.json
    ```
 
-6. 独立复核。没有 `needs_review` 时不要传入不存在的 override 文件：
-
-   ```bash
-   python scripts/main.py validate work/document.json --output output.docx --result-file work/validation-result.json
-   ```
-
-   只有实际创建了 override 文件时，才增加：
-
-   ```text
-   --overrides work/classification_overrides.json
-   ```
-
-7. 只有 `result.json` 和独立验证结果都为 `SUCCESS`，才向用户返回最终 DOCX。
+5. 如果返回 `INVALID_OVERRIDE` 或其他失败状态，停止并报告错误；不要循环 review，不要强猜。
 
 ## 禁止事项
 
-- 不重写、纠错、润色、总结或重新输出全文作为 renderer 输入。
-- 不修改文字、标点、数字、日期、标题编号、全半角字符或附件内容。
-- 不把 Markdown 或模型输出的正文作为事实来源。
-- 不覆盖源 DOCX。
-- 不绕过 `needs_review` 或 Validator。
-- 不自行增加 A4、页边距、缩进、页码等未确认规则。
-- 不访问网络、不上传文档、不调用外部模型 API、不记录全文日志。
+- 不重写、总结、纠错或重新返回全文。
+- 不修改文字、空格、标点、数字、日期或编号。
+- 不在 overrides 中返回正文、理由或格式。
+- 不自行设置字体、字号、行距或新增其他公文标准。
+- 不自行设置首行缩进、查找数字、设置 Times New Roman 或右对齐；这些全部由 Python 和配置完成。
+- 不访问原始 DOCX URL，不联网，不调用外部模型 API。
+- 不因输入是文本而拒绝。
+- 不跳过 Validator。
 
-## 资源
-
-- 格式值：`config/format_rules.json`
-- 完整内部规范：`references/format_spec.md`
-- 流水线入口：`scripts/main.py`
+只有程序返回 `status=SUCCESS` 才告诉用户已经完成，并直接返回 `output_file`。

@@ -8,18 +8,17 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RULES_PATH = PROJECT_ROOT / "config" / "format_rules.json"
 
-VALID_TYPES = {
+PARAGRAPH_TYPES = {
     "title",
+    "salutation",
     "heading_1",
     "heading_2",
     "heading_3",
     "heading_4",
     "body",
     "attachment",
-    "blank",
-    "unknown",
+    "signature",
 }
-RESOLVED_TYPES = VALID_TYPES - {"unknown"}
 
 
 class PipelineError(Exception):
@@ -39,11 +38,8 @@ class PipelineError(Exception):
 
     def as_result(self) -> dict[str, Any]:
         return {
-            "success": False,
-            "code": self.code,
+            "status": self.code,
             "errors": [{"message": self.message, "details": self.details}],
-            "warnings": [],
-            "output_file": None,
         }
 
 
@@ -105,12 +101,14 @@ def load_rules(path: str | Path | None = None) -> dict[str, Any]:
     rules = load_json(rules_path)
     required = {
         "title",
+        "salutation",
         "heading_1",
         "heading_2",
         "heading_3",
         "heading_4",
         "body",
         "attachment",
+        "signature",
         "global",
         "blank_policy",
     }
