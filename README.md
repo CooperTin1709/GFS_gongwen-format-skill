@@ -94,7 +94,15 @@ python -m unittest discover -s tests -v
 
 ## 打包
 
-部署包为 `dist/gongwen-format-skill.zip`。ZIP 根目录直接包含 `SKILL.md`，并仅包含 `SKILL.md`、`README.md`、`agents/`、`config/`、`references/` 和 `scripts/` 的运行必需文件。
+部署包为 `dist/GFSV4_gongwen-format-skill.zip`。ZIP 根目录直接包含 `SKILL.md`，并仅包含 `SKILL.md`、`README.md`、`agents/`、`config/`、`references/` 和 `scripts/` 的运行必需文件。
+
+在项目根目录运行：
+
+```bash
+python3 scripts/package_skill.py
+```
+
+打包程序从自身文件位置定位 Skill 根目录，不依赖当前工作目录；ZIP member 名显式使用 POSIX `/`。
 
 ## 当前限制
 

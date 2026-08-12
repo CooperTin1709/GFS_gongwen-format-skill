@@ -17,7 +17,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 1. 运行：
 
    ```bash
-   python scripts/main.py --text-file browser_input.txt --output-dir work
+   python3 scripts/main.py --text-file browser_input.txt --output-dir work
    ```
 
 2. 如果 `status=SUCCESS`，直接返回 `output_file`。
@@ -43,7 +43,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 4. 保存映射后只再调用一次：
 
    ```bash
-   python scripts/main.py --text-file browser_input.txt --output-dir work --overrides overrides.json
+   python3 scripts/main.py --text-file browser_input.txt --output-dir work --overrides overrides.json
    ```
 
 5. 如果返回 `INVALID_OVERRIDE` 或其他失败状态，停止并报告错误；不要循环 review，不要强猜。
