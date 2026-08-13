@@ -4,7 +4,7 @@
 
 当前 Skill 只把 HiAgent Browser 提取出的纯文本重建为固定格式 DOCX。它不读取或保留原始 DOCX 的样式、页面结构、表格、图片、页眉页脚或 Section，也不解析 HTML、Markdown、PDF 或 OCR 内容。
 
-未明确规定的页面尺寸、页边距、页码、版心、缩进、段前段后、发文机关、日期、版记、目录等均不设置。
+未明确规定的页面尺寸、页边距、页码、版心、发文机关、版记、目录等均不设置。
 
 ## 内容事实来源
 
@@ -20,6 +20,7 @@
 - 主标题后恰好一个空白 Word Paragraph。
 - 第一个附件段前恰好一个空白 Word Paragraph。
 - 所有输出段落，包括规定空白段落，使用固定值 30 pt 行距。
+- 所有输出段落段前、段后均为 0 pt；Normal Style 同样明确设置为 0/0，避免继承 Word 默认 10 pt 段后。
 
 ## 类型与格式
 
@@ -65,5 +66,6 @@
 - `w:firstLineChars` 缩进策略及冲突属性；
 - 主标题居中、称谓左对齐、落款右对齐；
 - 所有段落 `w:lineRule=exact` 且 `w:line=600`（30 pt）。
+- 所有段落 direct formatting 的段前/段后均为 0 pt，Normal Style 段前/段后也均为 0 pt。
 
 任一检查失败均返回 `VALIDATION_FAILED`，不得报告成功。

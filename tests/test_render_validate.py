@@ -67,6 +67,17 @@ def paragraph_with_text(document: Document, text: str):
     return next(paragraph for paragraph in document.paragraphs if paragraph.text == text)
 
 
+def paragraph_with_type(
+    document: Document, classified: dict[str, object], paragraph_type: str, occurrence: int = 0
+):
+    texts = [
+        item["text"]
+        for item in classified["paragraphs"]
+        if item["classification"] == paragraph_type
+    ]
+    return paragraph_with_text(document, texts[occurrence])
+
+
 def set_all_run_fonts(run, font_name: str) -> None:
     fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
     for attribute in FONT_ATTRIBUTES:
@@ -264,6 +275,70 @@ class RenderValidateTests(unittest.TestCase):
             paragraph_with_text(document, "XX部门").alignment = WD_ALIGN_PARAGRAPH.LEFT
             document.save(output)
             self.assert_validation_failed(classified, output, "alignment")
+
+    def test_validator_rejects_centered_signature(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            paragraph_with_type(
+                document, classified, "signature"
+            ).alignment = WD_ALIGN_PARAGRAPH.CENTER
+            document.save(output)
+            self.assert_validation_failed(classified, output, "alignment")
+
+    def test_validator_rejects_signature_date_alignment_and_indent(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            paragraph = paragraph_with_type(document, classified, "signature", 1)
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            set_first_line_indent_chars(paragraph, 2)
+            document.save(output)
+            result = validate_document(classified, output)
+            checks = {error["check"] for error in result["errors"]}
+            self.assertEqual(result["status"], "VALIDATION_FAILED")
+            self.assertIn("alignment", checks)
+            self.assertIn("first_line_indent", checks)
+
+    def test_validator_rejects_body_space_after(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            paragraph_with_type(
+                document, classified, "body"
+            ).paragraph_format.space_after = Pt(10)
+            document.save(output)
+            self.assert_validation_failed(classified, output, "paragraph_spacing")
+
+    def test_validator_rejects_heading_space_before(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            paragraph_with_type(
+                document, classified, "heading_1"
+            ).paragraph_format.space_before = Pt(6)
+            document.save(output)
+            self.assert_validation_failed(classified, output, "paragraph_spacing")
+
+    def test_validator_rejects_normal_style_spacing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            document.styles["Normal"].paragraph_format.space_after = Pt(10)
+            document.save(output)
+            self.assert_validation_failed(classified, output, "normal_style_spacing")
+
+    def test_validator_rejects_document_default_spacing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            classified, output, _, _ = build_output(Path(directory))
+            document = Document(output)
+            spacing = document.styles.element.find(
+                f"{qn('w:docDefaults')}/{qn('w:pPrDefault')}/"
+                f"{qn('w:pPr')}/{qn('w:spacing')}"
+            )
+            spacing.set(qn("w:after"), "200")
+            document.save(output)
+            self.assert_validation_failed(classified, output, "default_style_spacing")
 
     def test_validator_rejects_wrong_signature_font(self) -> None:
         with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:

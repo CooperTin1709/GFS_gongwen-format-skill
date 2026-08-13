@@ -18,12 +18,18 @@ SALUTATION_END_RE = re.compile(r"[:：]$")
 SALUTATION_TARGET_RE = re.compile(
     r"^(?:各位|各|全体|尊敬的|行)?(?:领导|同事|部门|单位|人员|同志|员工|代表|委员|机构|支行|分行|处室|科室|中心|办公室|[A-Za-z0-9０-９一-龥]{1,12}部门)$"
 )
-ARABIC_DATE_RE = re.compile(r"^[0-9０-９]{4}年[0-9０-９]{1,2}月[0-9０-９]{1,2}日$")
+ARABIC_DATE_RE = re.compile(
+    r"^(?:[0-9０-９]{4}|[XxＸｘ]{4})\s*年\s*"
+    r"(?:[0-9０-９]{1,2}|[XxＸｘ]{1,2})\s*月\s*"
+    r"(?:[0-9０-９]{1,2}|[XxＸｘ]{1,2})\s*日$"
+)
 CHINESE_DATE_RE = re.compile(
-    r"^[〇零一二三四五六七八九十]{4}年[〇零一二三四五六七八九十]{1,3}月[〇零一二三四五六七八九十]{1,4}日$"
+    r"^[〇○零一二三四五六七八九十]{4}\s*年\s*"
+    r"[〇○零一二三四五六七八九十]{1,3}\s*月\s*"
+    r"[〇○零一二三四五六七八九十]{1,4}\s*日$"
 )
 ORGANIZATION_RE = re.compile(
-    r"(?:部门|单位|公司|银行|分行|支行|委员会|政府|局|处|科|中心|办公室|集团|机构)$"
+    r"(?:部门|单位|公司|银行|分行|支行|委员会|政府|局|部|处|科|室|中心|办公室|集团|机构|工作组)$"
 )
 
 
@@ -69,6 +75,12 @@ def _is_organization(text: str) -> bool:
         len(text) <= 40
         and bool(ORGANIZATION_RE.search(text))
         and not SENTENCE_END_RE.search(text)
+        and not ATTACHMENT_RE.match(text)
+        and not HEADING_1_RE.match(text)
+        and not HEADING_2_RE.match(text)
+        and not HEADING_3_RE.match(text)
+        and not HEADING_4_RE.match(text)
+        and not SALUTATION_END_RE.search(text)
     )
 
 

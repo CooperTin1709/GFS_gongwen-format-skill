@@ -17,7 +17,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 1. 运行：
 
    ```bash
-   python scripts/main.py --text-file browser_input.txt --output-dir work
+   python3 scripts/main.py --text-file browser_input.txt --output-dir work
    ```
 
 2. 如果 `status=SUCCESS`，直接返回 `output_file`。
@@ -31,6 +31,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 2. 每项只能从 `candidate_types` 选择一个类型。
    - `salutation` 是文档开头称呼收文对象的独立短段，如“行领导：”“XX部门：”；正文中的“具体要求如下：”选择 `body`。
    - `signature` 是文末单位名称、署名或落款日期；普通正文最后一句选择 `body`。
+   - 文末“单位名称 + 日期”由程序确定性识别并真正右对齐；不要添加空格、Tab 或改写日期。
 3. 只生成段落 ID 到类型的简单映射：
 
    ```json
@@ -42,7 +43,7 @@ description: Convert complete Chinese public-document text extracted by the HiAg
 4. 保存映射后只再调用一次：
 
    ```bash
-   python scripts/main.py --text-file browser_input.txt --output-dir work --overrides overrides.json
+   python3 scripts/main.py --text-file browser_input.txt --output-dir work --overrides overrides.json
    ```
 
 5. 如果返回 `INVALID_OVERRIDE` 或其他失败状态，停止并报告错误；不要循环 review，不要强猜。

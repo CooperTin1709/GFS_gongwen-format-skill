@@ -11,10 +11,12 @@ try:
     from .docx_utils import (
         DIGIT_RUN_RE,
         FONT_ATTRIBUTES,
+        default_paragraph_spacing,
         font_values,
         indent_values,
         is_digit_run_text,
         line_spacing,
+        paragraph_spacing,
         split_text_by_digit_runs,
     )
     from .render_docx import build_render_plan, resolve_classifications
@@ -23,10 +25,12 @@ except ImportError:  # pragma: no cover - direct script import fallback
     from docx_utils import (
         DIGIT_RUN_RE,
         FONT_ATTRIBUTES,
+        default_paragraph_spacing,
         font_values,
         indent_values,
         is_digit_run_text,
         line_spacing,
+        paragraph_spacing,
         split_text_by_digit_runs,
     )
     from render_docx import build_render_plan, resolve_classifications
@@ -135,12 +139,45 @@ def validate_document(
             "cs": set(),
             "size_pt": set(),
             "line_spacing_pt": set(),
+            "space_before_pt": set(),
+            "space_after_pt": set(),
             "alignment": set(),
             "first_line_indent_chars": set(),
         }
     )
     expected_line = float(rules["global"]["line_spacing_pt"])
+    expected_before = float(rules["global"]["space_before_pt"])
+    expected_after = float(rules["global"]["space_after_pt"])
     digit_font = str(rules["global"]["digit_font"])
+
+    normal_format = rendered.styles["Normal"].paragraph_format
+    normal_before = (
+        normal_format.space_before.pt if normal_format.space_before is not None else None
+    )
+    normal_after = (
+        normal_format.space_after.pt if normal_format.space_after is not None else None
+    )
+    if normal_before != expected_before or normal_after != expected_after:
+        errors.append(
+            {
+                "check": "normal_style_spacing",
+                "expected_before_pt": expected_before,
+                "expected_after_pt": expected_after,
+                "actual_before_pt": normal_before,
+                "actual_after_pt": normal_after,
+            }
+        )
+    default_before, default_after = default_paragraph_spacing(rendered)
+    if default_before != expected_before or default_after != expected_after:
+        errors.append(
+            {
+                "check": "default_style_spacing",
+                "expected_before_pt": expected_before,
+                "expected_after_pt": expected_after,
+                "actual_before_pt": default_before,
+                "actual_after_pt": default_after,
+            }
+        )
 
     for index, item in enumerate(plan[: len(rendered.paragraphs)]):
         paragraph = rendered.paragraphs[index]
@@ -159,6 +196,21 @@ def validate_document(
                     "expected_pt": expected_line,
                     "actual_rule": line_rule,
                     "actual_pt": line_points,
+                }
+            )
+
+        actual_before, actual_after = paragraph_spacing(paragraph)
+        observations[paragraph_type]["space_before_pt"].add(actual_before)
+        observations[paragraph_type]["space_after_pt"].add(actual_after)
+        if actual_before != expected_before or actual_after != expected_after:
+            errors.append(
+                {
+                    "check": "paragraph_spacing",
+                    "paragraph_id": item["id"],
+                    "expected_before_pt": expected_before,
+                    "expected_after_pt": expected_after,
+                    "actual_before_pt": actual_before,
+                    "actual_after_pt": actual_after,
                 }
             )
 
@@ -344,5 +396,13 @@ def validate_document(
             "blank_before_attachment": attachment_blank_ok,
             "blank_before_attachment_count": attachment_blank_count,
             "observed_formats": observed_formats,
+            "normal_style_spacing": {
+                "space_before_pt": normal_before,
+                "space_after_pt": normal_after,
+            },
+            "default_style_spacing": {
+                "space_before_pt": default_before,
+                "space_after_pt": default_after,
+            },
         },
     }

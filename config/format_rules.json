@@ -51,6 +51,8 @@
   },
   "global": {
     "line_spacing_pt": 30,
+    "space_before_pt": 0,
+    "space_after_pt": 0,
     "digit_font": "Times New Roman"
   },
   "blank_policy": {

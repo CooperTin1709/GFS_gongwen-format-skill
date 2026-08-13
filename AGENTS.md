@@ -15,3 +15,8 @@
 - Use Word paragraph properties for first-line indentation; never insert spaces.
 - Keep signature right-aligned and salutation unindented.
 - Update Validator whenever a formatting rule is added.
+- Explicitly set every Paragraph to space_before=0 and space_after=0.
+- Set Normal Style paragraph spacing to 0/0 to prevent Word default inheritance.
+- Implement signature right alignment with Paragraph alignment, never spaces or tabs.
+- Prefer document-tail structure rules for signature detection.
+- Keep Validator and Browser Text E2E coverage synchronized with formatting changes.

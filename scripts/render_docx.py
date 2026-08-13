@@ -5,11 +5,14 @@ from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 
 try:
     from .docx_utils import (
         set_exact_line_spacing,
+        set_default_paragraph_spacing,
         set_first_line_indent_chars,
+        set_paragraph_spacing,
         set_run_format,
         split_text_by_digit_runs,
     )
@@ -24,7 +27,9 @@ try:
 except ImportError:  # pragma: no cover - direct script import fallback
     from docx_utils import (
         set_exact_line_spacing,
+        set_default_paragraph_spacing,
         set_first_line_indent_chars,
+        set_paragraph_spacing,
         set_run_format,
         split_text_by_digit_runs,
     )
@@ -205,7 +210,17 @@ def render_document(
     document = Document()
     _remove_default_paragraph(document)
     line_spacing_pt = float(rules["global"]["line_spacing_pt"])
+    space_before_pt = float(rules["global"]["space_before_pt"])
+    space_after_pt = float(rules["global"]["space_after_pt"])
     digit_font = str(rules["global"]["digit_font"])
+    normal_format = document.styles["Normal"].paragraph_format
+    normal_format.space_before = Pt(space_before_pt)
+    normal_format.space_after = Pt(space_after_pt)
+    set_default_paragraph_spacing(
+        document,
+        space_before_pt=space_before_pt,
+        space_after_pt=space_after_pt,
+    )
 
     for item in plan:
         paragraph = document.add_paragraph()
@@ -234,6 +249,11 @@ def render_document(
                 paragraph, float(rule["first_line_indent_chars"])
             )
         set_exact_line_spacing(paragraph, line_spacing_pt)
+        set_paragraph_spacing(
+            paragraph,
+            space_before_pt=space_before_pt,
+            space_after_pt=space_after_pt,
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
